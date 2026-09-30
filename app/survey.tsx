@@ -1,0 +1,30 @@
+'use client';
+import {useEffect,useRef,useState} from 'react';
+import {Activity,Check,ClipboardList,ShieldCheck,CheckCircle2,Clock3} from 'lucide-react';
+import {sections,type Answers} from './questions';
+export default function Survey(){
+ const [step,setStep]=useState(0),[answers,setAnswers]=useState<Answers>({}),[error,setError]=useState(''),[busy,setBusy]=useState(false),[done,setDone]=useState(''),[consent,setConsent]=useState(false);
+ const heading=useRef<HTMLHeadingElement>(null); const submission=useRef('');
+ useEffect(()=>{submission.current=crypto.randomUUID()},[]);
+ const section=sections[step]; const filled=Object.values(answers).filter(v=>Array.isArray(v)?v.length:v.trim()).length;
+ function update(id:string,value:string|string[]){setAnswers(a=>({...a,[id]:value}));setError('')}
+ function go(n:number){setStep(n);setError('');window.scrollTo({top:0,behavior:'smooth'});setTimeout(()=>heading.current?.focus(),100)}
+ function missing(s:number){return sections[s].questions.find(q=>q.required&&!String(answers[q.id]||'').trim())}
+ async function submit(){for(let i=0;i<sections.length;i++){const q=missing(i);if(q){go(i);setError(`请填写：${q.label}`);return}} if(!consent){setError('请确认同意提交本次调研答案。');return}setBusy(true);setError('');try{
+ const session=await fetch('/api/session',{cache:'no-store'});if(!session.ok)throw Error('暂时无法建立提交会话，请重试。');const {token}=await session.json() as {token:string};
+ const res=await fetch('/api/responses',{method:'POST',headers:{'Content-Type':'application/json','X-Survey-Token':token},body:JSON.stringify({id:submission.current,answers,consent:true})});
+ const data=await res.json() as {id:string;error?:string};if(!res.ok)throw Error(data.error||'提交暂未成功，请稍后重试。');setDone(data.id);window.scrollTo(0,0);
+ }catch(e){setError(e instanceof Error&&e.message?e.message:'网络暂时不可用，答案仍保留在当前页面，请重试。')}finally{setBusy(false)}}
+ return <><header className="topbar"><a className="brand" href="/"><span className="brand-icon"><Activity size={24}/></span><span>重症护理<span className="brand-sub">一线工作体验调研</span></span></a><span className="top-tag">护士长 · 护理团队</span></header>
+ <main className="shell"><aside className="sidebar"><div className="eyebrow">NURSING EXPERIENCE</div><h1>让每一次记录，<br/>更贴近护理。</h1><p className="side-intro">从真实班次出发，了解工作中的时间负担与优先改善方向。</p><nav aria-label="问卷章节">{sections.map((s,i)=><button key={s.short} className={'step-link '+(i===step?'active':'')} onClick={()=>!done&&go(i)} disabled={!!done}><span className="step-num">{i<step||done?<Check size={15}/>:String(i+1).padStart(2,'0')}</span>{s.short}<span className="step-dot"/></button>)}</nav><div className="side-note"><ShieldCheck size={20}/><p>答案仅供调研管理员查看。<br/>请勿填写患儿姓名、住院号等个人信息。</p></div></aside>
+ <div className="main-column">{done?<section className="card success"><CheckCircle2 size={60}/><div className="eyebrow">提交成功</div><h2>谢谢，您的回答已收到。</h2><p>答卷已保存，调研负责人可在管理后台查看。<br/>感谢您分享一线护理工作的真实经验。</p><div className="receipt">答卷编号<br/><strong>{done.slice(0,8).toUpperCase()}</strong></div><p className="muted">现在可以关闭此页面。</p></section>:<>
+ <div className="survey-meta"><span><ClipboardList size={17}/>护理工作体验与需求问卷</span><span><Clock3 size={16}/>约 10–15 分钟</span></div><div className="progress-label"><span>第 {step+1} / {sections.length} 部分</span><span>已填写 {filled} 项</span></div><div className="progress-track"><div style={{width:`${(step+1)/sections.length*100}%`}}/></div>
+ <section className="card"><div className="section-heading"><span className="section-number">{String(step+1).padStart(2,'0')}</span><div><h2 ref={heading} tabIndex={-1}>{section.title}</h2><p>{section.intro}</p></div></div><div className="required-note"><span>*</span> 为必填项，其余可按实际情况选填</div>
+ {section.questions.map((q,i)=><fieldset className="question" key={q.id}><legend><span className="q-index">{String(i+1).padStart(2,'0')}</span>{q.label}{q.required&&<span className="required"> *</span>}</legend>{q.hint&&<p className="hint" id={q.id+'-hint'}>{q.hint}</p>}
+ {q.options?<div className="options">{q.options.map(o=>{const selected=q.kind==='multi'?(answers[q.id] as string[]||[]).includes(o):answers[q.id]===o;return <label className={'option '+(selected?'selected':'')} key={o}><input type={q.kind==='multi'?'checkbox':'radio'} name={q.id} value={o} checked={selected} onChange={()=>{if(q.kind==='multi'){const old=answers[q.id] as string[]||[];update(q.id,selected?old.filter(x=>x!==o):[...old,o])}else update(q.id,o)}}/><span>{o}</span></label>})}</div>:q.kind==='number'?<div className="number-wrap"><input aria-label={q.label} type="number" min="0" max="10000" step="0.5" inputMode="decimal" placeholder="请填写" value={answers[q.id] as string||''} onChange={e=>update(q.id,e.target.value)}/><span>{q.unit}</span></div>:q.kind==='text'?<input className="text-input" aria-label={q.label} aria-describedby={q.hint?q.id+'-hint':undefined} maxLength={300} placeholder="请输入" value={answers[q.id] as string||''} onChange={e=>update(q.id,e.target.value)}/>:<textarea aria-label={q.label} aria-describedby={q.hint?q.id+'-hint':undefined} maxLength={3000} rows={3} placeholder="请分享您的实际情况…" value={answers[q.id] as string||''} onChange={e=>update(q.id,e.target.value)}/>}
+ </fieldset>)}
+ {step===sections.length-1&&<label className="consent"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/><span>我同意将以上答案提交给本次调研负责人，用于护理需求分析及后续沟通。</span></label>}
+ {error&&<div className="error" role="alert">{error}</div>}<div className="form-footer"><button className="secondary" disabled={step===0||busy} onClick={()=>go(step-1)}>上一部分</button><span className="footer-count">{step+1} / {sections.length}</span>{step<sections.length-1?<button className="primary" onClick={()=>{const q=missing(step);if(q){setError(`请填写：${q.label}`);return}go(step+1)}}>下一部分</button>:<button className="primary" disabled={busy} onClick={submit}>{busy?'正在提交…':'提交问卷'}</button>}</div>
+ </section><p className="bottom-note">可返回修改已填内容 · 提交前请保持页面打开</p></>}
+ <footer className="site-footer"><span>重症护理工作体验调研</span><a href="/admin">答卷管理</a></footer></div></main></>
+}
